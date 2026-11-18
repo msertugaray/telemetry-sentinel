@@ -1,0 +1,10 @@
+services:
+  telemetry-sentinel:
+    build: .
+    container_name: telemetry-sentinel
+    ports:
+      - "8000:8000"
+    volumes:
+      # Filo değişince imajı yeniden oluşturmadan filo.json'ı düzenlemek yeterli
+      - ./filo.json:/app/filo.json:ro
+    restart: unless-stopped

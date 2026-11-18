@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="tr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TELEMETRY SENTINEL | Otobüs Filosu Arıza Teşhis Sistemi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] } } }
+        };
+    </script>
+    <style>
+        body {
+            background-color: #090d16;
+            color: #f3f4f6;
+            background-image:
+                radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.06) 0%, transparent 40%),
+                radial-gradient(circle at 85% 85%, rgba(16, 185, 129, 0.05) 0%, transparent 40%),
+                linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+        }
+        .glass-panel {
+            background: rgba(17, 24, 39, 0.78);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        .glass-card { background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.06); }
+        .led-green { background-color: #10b981; box-shadow: 0 0 8px #10b981; }
+        .led-red { background-color: #ef4444; box-shadow: 0 0 10px #ef4444; animation: pulse 1s infinite; }
+        .led-gray { background-color: #475569; }
+        .drag-active { border-color: #38bdf8 !important; background-color: rgba(56, 189, 248, 0.1) !important; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+    </style>
+</head>
+<body class="min-h-screen font-sans antialiased pb-12">
+
+<div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+<!-- ÜST ÇUBUK -->
+<header class="sticky top-0 z-40 glass-panel border-b border-slate-800/80 px-4 sm:px-6 lg:px-8 py-3.5">
+    <div class="max-w-[1600px] mx-auto flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4">
+        <div class="flex items-center gap-3.5">
+            <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-sky-500/20 to-emerald-500/20 border border-sky-400/30 flex items-center justify-center">
+                <i class="fa-solid fa-satellite-dish text-sky-400 text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-lg sm:text-xl font-extrabold tracking-wider text-white">TELEMETRY <span class="text-sky-400">SENTINEL</span></h1>
+                <p class="text-xs text-slate-400 font-medium">Otobüs Filosu Arıza Teşhis Sistemi</p>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2.5 w-full xl:w-auto">
+            <div class="glass-card rounded-xl px-3.5 py-2 flex items-center gap-2.5">
+                <span id="engine-led" class="w-2.5 h-2.5 rounded-full led-gray"></span>
+                <div>
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Karar Motoru</div>
+                    <div id="engine-status" class="text-xs font-mono font-bold text-slate-400">BAĞLANIYOR</div>
+                </div>
+            </div>
+            <div class="glass-card rounded-xl px-3.5 py-2">
+                <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">İşlem Süresi</div>
+                <div id="metric-time" class="text-xs font-mono font-bold text-sky-400">—</div>
+            </div>
+            <div class="glass-card rounded-xl px-3.5 py-2">
+                <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Analiz Edilen Kayıt</div>
+                <div id="metric-records" class="text-xs font-mono font-bold text-slate-200">—</div>
+            </div>
+        </div>
+
+        <label id="drop-zone" for="csv-file-input" class="w-full xl:w-auto cursor-pointer group flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border border-dashed border-slate-600 hover:border-sky-400 bg-slate-900/60 transition-all">
+            <div class="flex items-center gap-2.5">
+                <i class="fa-solid fa-file-csv text-sky-400 text-base"></i>
+                <div>
+                    <div class="text-xs font-semibold text-slate-200">CSV Dosyası Yükle</div>
+                    <div class="text-[10px] text-slate-400">Sürükle-bırak veya seç (.csv, en fazla 5 MB)</div>
+                </div>
+            </div>
+            <span class="px-2 py-1 rounded-lg bg-sky-500/15 text-sky-400 text-[11px] font-semibold border border-sky-500/30">Gözat</span>
+            <input type="file" id="csv-file-input" accept=".csv" class="hidden">
+        </label>
+    </div>
+
+    <div class="max-w-[1600px] mx-auto mt-3.5 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2 text-xs text-slate-400 font-medium">
+            <i class="fa-solid fa-flask text-sky-400"></i><span>Hızlı test senaryoları:</span>
+        </div>
+        <div id="scenario-buttons" class="flex flex-wrap items-center gap-2"></div>
+    </div>
+</header>
+
+<main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
+
+    <!-- TEŞHİS SONUCU -->
+    <section id="hero-banner" class="glass-panel rounded-2xl p-5 sm:p-7 border-l-4 border-l-slate-600">
+        <div class="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+            <div class="space-y-4 max-w-4xl flex-1">
+                <div class="flex flex-wrap items-center gap-2.5">
+                    <span id="hero-badge" class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border bg-slate-800 text-slate-300 border-slate-700">Analiz bekleniyor</span>
+                    <span id="hero-file" class="px-2.5 py-1 rounded-md text-xs font-mono bg-slate-800/90 text-slate-300 border border-slate-700 hidden"></span>
+                </div>
+                <h2 id="hero-title" class="text-xl sm:text-2xl lg:text-3xl font-extrabold text-white tracking-tight leading-snug">
+                    Bir CSV dosyası yükleyin veya bir test senaryosu seçin.
+                </h2>
+
+                <div id="findings-box" class="hidden">
+                    <div class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Tüm tespitler</div>
+                    <ol id="findings-list" class="space-y-1.5 text-sm sm:text-base text-slate-200 list-decimal list-inside"></ol>
+                </div>
+
+                <div id="action-box" class="hidden bg-slate-900/80 border border-slate-700/80 rounded-xl p-4 flex items-start gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-slate-700/40 text-slate-200 flex items-center justify-center shrink-0"><i class="fa-solid fa-wrench"></i></div>
+                    <div>
+                        <div class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">Önerilen müdahale</div>
+                        <p id="action-text" class="text-sm sm:text-base text-slate-200 font-medium"></p>
+                    </div>
+                </div>
+
+                <div id="error-box" class="hidden bg-purple-950/40 border border-purple-500/40 rounded-xl p-4">
+                    <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-purple-300 mb-2">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <span>Dosyada hata var, analiz yapılmadı</span>
+                    </div>
+                    <ul id="error-list" class="space-y-1 text-xs sm:text-sm text-purple-100/90 font-mono"></ul>
+                    <p id="error-more" class="hidden mt-2 text-xs text-purple-300"></p>
+                    <p class="mt-2 text-xs text-purple-200/80">Hataları düzeltip dosyayı tekrar yükleyin. Doğru biçim için <a href="/ornek.csv" class="underline">örnek CSV</a> dosyasına bakabilirsiniz.</p>
+                </div>
+            </div>
+
+            <div class="lg:w-72 shrink-0 glass-card rounded-xl p-4 space-y-2.5 text-xs">
+                <div class="font-bold uppercase tracking-wider text-slate-400">Özet</div>
+                <div class="flex justify-between py-1.5 border-b border-slate-800"><span class="text-slate-400">İstasyon arızası</span><span id="sum-istasyon" class="font-mono font-bold text-red-400">0</span></div>
+                <div class="flex justify-between py-1.5 border-b border-slate-800"><span class="text-slate-400">Otobüs arızası</span><span id="sum-otobus" class="font-mono font-bold text-amber-400">0</span></div>
+                <div class="flex justify-between py-1.5"><span class="text-slate-400">Sensör arızası</span><span id="sum-sensor" class="font-mono font-bold text-sky-400">0</span></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FİLO DURUMU -->
+    <section class="glass-panel rounded-2xl p-5 sm:p-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+            <div>
+                <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2"><i class="fa-solid fa-network-wired text-sky-400"></i>Filo ve Sensör Durumu</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Analiz edilen süre boyunca arızalı olarak tespit edilen birimler</p>
+            </div>
+            <div class="flex items-center gap-4 text-xs bg-slate-900/70 px-3.5 py-2 rounded-xl border border-slate-800">
+                <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full led-green"></span>Sorun yok</span>
+                <span class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full led-red"></span>Arıza tespit edildi</span>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <div class="lg:col-span-3">
+                <div id="station-card" class="h-full rounded-2xl p-5 border-2 border-emerald-500/40 bg-slate-900/80 flex flex-col items-center justify-center text-center">
+                    <div id="station-icon" class="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-2xl mb-3"><i class="fa-solid fa-tower-broadcast"></i></div>
+                    <h4 class="text-base font-bold text-white">ANA İSTASYON</h4>
+                    <span id="station-status" class="mt-2 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">SORUN YOK</span>
+                </div>
+            </div>
+            <div id="fleet-grid" class="lg:col-span-9 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        </div>
+    </section>
+
+    <!-- ZAMAN ÇİZELGESİ VE KARAR AĞACI -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div class="lg:col-span-7 glass-panel rounded-2xl p-5 sm:p-6">
+            <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2"><i class="fa-solid fa-chart-gantt text-sky-400"></i>Kesinti Zaman Çizelgesi</h3>
+            <p id="timeline-range" class="text-xs text-slate-400 mt-0.5 mb-4">Henüz analiz yapılmadı</p>
+            <div id="timeline-rows" class="space-y-2.5"></div>
+            <div class="mt-5 pt-3.5 border-t border-slate-800/80 flex flex-wrap gap-4 text-xs text-slate-400">
+                <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-500 inline-block"></span>İstasyon</span>
+                <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-amber-500 inline-block"></span>Otobüs</span>
+                <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-sky-500 inline-block"></span>Sensör</span>
+            </div>
+        </div>
+
+        <div class="lg:col-span-5 glass-panel rounded-2xl p-5 sm:p-6">
+            <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2"><i class="fa-solid fa-code-branch text-sky-400"></i>Karar Kuralları</h3>
+            <p class="text-xs text-slate-400 mt-0.5 mb-4">Her kesinti parçası için kurallar bu sırayla denenir</p>
+            <div class="space-y-3" id="rule-steps"></div>
+        </div>
+    </section>
+
+    <!-- CSV EDİTÖRÜ VE SONUÇ TABLOSU -->
+    <section class="glass-panel rounded-2xl p-5 sm:p-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+            <div>
+                <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2"><i class="fa-solid fa-terminal text-sky-400"></i>Kesinti Verisi</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Biçim: <code class="text-sky-400 bg-slate-900 px-1.5 py-0.5 rounded">otobus,sensor,baslangic,bitis</code> — zamanlar SS:DD:ss. Veriyi burada düzenleyip yeniden analiz edebilirsiniz.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2.5">
+                <a href="/ornek.csv" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2"><i class="fa-solid fa-download text-sky-400"></i>Örnek CSV</a>
+                <button id="run-btn" type="button" class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 text-white flex items-center gap-2 disabled:opacity-60">
+                    <i id="run-icon" class="fa-solid fa-play"></i><span id="run-label">Analiz Et</span>
+                </button>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <div class="lg:col-span-6 flex flex-col">
+                <div class="flex justify-between bg-slate-950/90 px-4 py-2 rounded-t-xl border border-b-0 border-slate-800 text-xs font-mono text-slate-400">
+                    <span id="editor-name">kesinti.csv</span><span id="editor-lines">0 satır</span>
+                </div>
+                <textarea id="csv-editor" rows="11" spellcheck="false" class="w-full bg-slate-950/75 text-slate-200 font-mono text-xs p-4 rounded-b-xl border border-slate-800 focus:border-sky-500/60 focus:outline-none resize-y"></textarea>
+            </div>
+            <div class="lg:col-span-6 flex flex-col">
+                <div class="bg-slate-900/90 px-4 py-2 rounded-t-xl border border-b-0 border-slate-800 text-xs font-semibold text-slate-300">Tespit edilen arızalar</div>
+                <div class="bg-slate-950/60 border border-slate-800 rounded-b-xl flex-1 max-h-[268px] overflow-y-auto">
+                    <table class="w-full text-left text-xs font-mono">
+                        <thead class="bg-slate-900/90 text-slate-400 sticky top-0">
+                            <tr><th class="py-2 px-3">Aralık</th><th class="py-2 px-3">Kaynak</th><th class="py-2 px-3">Otobüs</th><th class="py-2 px-3">Sensör</th></tr>
+                        </thead>
+                        <tbody id="findings-table" class="divide-y divide-slate-800/60"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<script>
+// Bu dosyada analiz yapılmaz: CSV, FastAPI sunucusuna (/api/analyze) gönderilir,
+// kararı Python karar motoru verir. JavaScript yalnızca sonucu ekrana çizer.
+
+const SOURCE = {
+    istasyon: { label: 'İstasyon', color: 'red', bar: 'bg-red-500' },
+    otobus:   { label: 'Otobüs',   color: 'amber', bar: 'bg-amber-500' },
+    sensor:   { label: 'Sensör',   color: 'sky', bar: 'bg-sky-500' }
+};
+const BADGE = {
+    red: 'bg-red-500/20 text-red-300 border-red-500/40',
+    amber: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+    sky: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
+    emerald: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+    purple: 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+};
+const BORDER = { red: 'border-l-red-500', amber: 'border-l-amber-500', sky: 'border-l-sky-500', emerald: 'border-l-emerald-500', purple: 'border-l-purple-500' };
+const RULES = [
+    { source: 'istasyon', title: 'Kural 1: Tüm filo', text: 'Filodaki tüm otobüslerin tüm sensörleri aynı anda kesik mi?' },
+    { source: 'otobus', title: 'Kural 2: Otobüs', text: 'Bir otobüsün tüm sensörleri aynı anda kesik mi?' },
+    { source: 'sensor', title: 'Kural 3: Sensör', text: 'Bir otobüste tek veya birkaç sensör mü kesik?' }
+];
+
+let fleet = { otobusler: [], sensorler: [] };
+const $ = (id) => document.getElementById(id);
+
+function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function showToast(message, type = 'info') {
+    const colors = { info: 'border-sky-500/50 text-sky-300', success: 'border-emerald-500/50 text-emerald-300', error: 'border-red-500/50 text-red-300' };
+    const toast = document.createElement('div');
+    toast.className = `pointer-events-auto px-4 py-3 rounded-xl border bg-slate-900/95 shadow-2xl text-xs font-medium ${colors[type] || colors.info}`;
+    toast.textContent = message;
+    $('toast-container').appendChild(toast);
+    setTimeout(() => toast.remove(), 3500);
+}
+
+// ---------------------------------------------------------------- Senaryolar
+function rows(buses, sensors, start, end) {
+    return buses.flatMap((b) => sensors.map((s) => `${b},${s},${start},${end}`));
+}
+
+const SCENARIOS = {
+    A: { label: 'Senaryo A: Ana istasyon', dot: 'bg-red-500',
+         build: (f) => rows(f.otobusler, f.sensorler, '00:00:05', '00:00:09') },
+    B: { label: 'Senaryo B: Otobüs arızası', dot: 'bg-amber-400',
+         build: (f) => rows([f.otobusler[0]], f.sensorler, '00:00:05', '00:00:09') },
+    C: { label: 'Senaryo C: Tek sensör', dot: 'bg-sky-400',
+         build: (f) => rows([f.otobusler[0]], [f.sensorler[f.sensorler.length - 1]], '00:00:05', '00:00:09') },
+    D: { label: 'Senaryo D: Kısmi çakışma', dot: 'bg-emerald-400',
+         build: (f) => [
+             ...rows([f.otobusler[0]], [f.sensorler[0]], '00:00:02', '00:00:09'),
+             ...rows([f.otobusler[0]], f.sensorler.slice(1), '00:00:05', '00:00:12')
+         ] },
+    HATA: { label: 'Hatalı CSV testi', dot: 'bg-purple-400',
+         build: (f) => [
+             `${f.otobusler[0]},${f.sensorler[0]},00:00:02,00:00:09`,
+             `${f.otobusler[0]},${f.sensorler[0]},99:88:77,00:00:09`,
+             `B99,${f.sensorler[0]},00:00:02,00:00:09`,
+             `${f.otobusler[0]},${f.sensorler[0]},00:00:09,00:00:02`
+         ] }
+};
+
+function renderScenarioButtons() {
+    $('scenario-buttons').innerHTML = Object.entries(SCENARIOS).map(([key, s]) => `
+        <button type="button" data-scenario="${key}" class="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-700 bg-slate-800/70 text-slate-300 hover:border-slate-500 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full ${s.dot}"></span>${esc(s.label)}
+        </button>`).join('');
+    document.querySelectorAll('[data-scenario]').forEach((btn) => {
+        btn.addEventListener('click', () => loadScenario(btn.dataset.scenario));
+    });
+}
+
+function loadScenario(key) {
+    const text = ['otobus,sensor,baslangic,bitis', ...SCENARIOS[key].build(fleet)].join('\n') + '\n';
+    setEditor(text, `senaryo_${key.toLowerCase()}.csv`);
+    runAnalysis();
+}
+
+function setEditor(text, name) {
+    $('csv-editor').value = text;
+    $('editor-name').textContent = name;
+    updateLineCount();
+}
+
+function updateLineCount() {
+    const count = $('csv-editor').value.split(/\r?\n/).filter((l) => l.trim()).length;
+    $('editor-lines').textContent = `${count} satır`;
+}
+
+// ---------------------------------------------------------------- API
+function setLoading(isLoading) {
+    $('run-btn').disabled = isLoading;
+    $('run-icon').className = isLoading ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-play';
+    $('run-label').textContent = isLoading ? 'Analiz ediliyor…' : 'Analiz Et';
+}
+
+async function runAnalysis() {
+    const text = $('csv-editor').value;
+    if (!text.trim()) { showToast('Analiz edilecek veri yok.', 'error'); return; }
+    let name = $('editor-name').textContent || 'kesinti.csv';
+    if (!name.toLowerCase().endsWith('.csv')) name += '.csv';
+
+    const form = new FormData();
+    form.append('file', new File([text], name, { type: 'text/csv' }));
+    setLoading(true);
+    try {
+        const response = await fetch('/api/analyze', { method: 'POST', body: form });
+        const body = await response.json();
+        if (body.ok) { renderResult(body, name); } else { renderErrors(body, name); }
+    } catch (err) {
+        showToast('Sunucuya ulaşılamadı. Uygulamanın çalıştığından emin olun.', 'error');
+    } finally {
+        setLoading(false);
+    }
+}
+
+async function uploadFile(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.csv')) { showToast('Yalnızca .csv dosyası yüklenebilir.', 'error'); return; }
+    if (file.size > 5 * 1024 * 1024) { showToast('Dosya 5 MB sınırını aşıyor.', 'error'); return; }
+    setEditor(await file.text(), file.name);
+    runAnalysis();
+}
+
+// ---------------------------------------------------------------- Çizim
+function setHero(color, badge, title, fileName) {
+    $('hero-banner').className = `glass-panel rounded-2xl p-5 sm:p-7 border-l-4 ${BORDER[color]}`;
+    $('hero-badge').className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${BADGE[color]}`;
+    $('hero-badge').textContent = badge;
+    $('hero-title').textContent = title;
+    $('hero-file').textContent = fileName;
+    $('hero-file').classList.remove('hidden');
+}
+
+function actionFor(finding) {
+    if (finding.source === 'istasyon') return 'Saha ekiplerini otobüslere göndermeyin; ana istasyonun alıcı sunucusunu ve ağ bağlantısını kontrol edin.';
+    if (finding.source === 'otobus') return `Saha ekibini yalnızca ${finding.bus} otobüsünün iletişim ve güç ünitesine yönlendirin.`;
+    return `Aracı garaja çekmeye gerek yok; ${finding.bus} otobüsünün ${finding.sensors.join(', ')} sensör bağlantısını kontrol edin.`;
+}
+
+function renderResult(body, fileName) {
+    const findings = body.findings;
+    $('metric-time').textContent = `${body.elapsed_ms} ms`;
+    $('metric-records').textContent = `${body.record_count}`;
+    $('error-box').classList.add('hidden');
+    ['istasyon', 'otobus', 'sensor'].forEach((s) => { $(`sum-${s}`).textContent = body.summary[s]; });
+
+    if (findings.length === 0) {
+        setHero('emerald', 'Sorun yok', body.message, fileName);
+        $('findings-box').classList.add('hidden');
+        $('action-box').classList.add('hidden');
+    } else {
+        const top = [...findings].sort((a, b) => a.rule - b.rule)[0];
+        setHero(SOURCE[top.source].color, `${findings.length} tespit`, top.message, fileName);
+        $('findings-list').innerHTML = findings.map((f) => `<li>${esc(f.message)}</li>`).join('');
+        $('findings-box').classList.toggle('hidden', findings.length < 2);
+        $('action-text').textContent = actionFor(top);
+        $('action-box').classList.remove('hidden');
+    }
+    renderFleet(findings);
+    renderTimeline(findings);
+    renderRules(body.summary);
+    renderTable(findings);
+    showToast('Analiz tamamlandı.', 'success');
+}
+
+function renderErrors(body, fileName) {
+    setHero('purple', 'Hatalı dosya', 'Dosya analiz edilemedi.', fileName);
+    $('findings-box').classList.add('hidden');
+    $('action-box').classList.add('hidden');
+    $('error-list').innerHTML = body.errors.map((e) => `<li>${esc(e)}</li>`).join('');
+    const hidden = body.total_errors - body.errors.length;
+    $('error-more').textContent = hidden > 0 ? `… ve ${hidden} hata daha.` : '';
+    $('error-more').classList.toggle('hidden', hidden <= 0);
+    $('error-box').classList.remove('hidden');
+    $('metric-time').textContent = '—';
+    $('metric-records').textContent = '—';
+    renderFleet([]);
+    renderTimeline([]);
+    renderRules({ istasyon: 0, otobus: 0, sensor: 0 });
+    renderTable([]);
+    showToast('Dosyada hata bulundu.', 'error');
+}
+
+function renderFleet(findings) {
+    const stationDown = findings.some((f) => f.source === 'istasyon');
+    $('station-card').className = `h-full rounded-2xl p-5 border-2 flex flex-col items-center justify-center text-center ${stationDown ? 'border-red-500/70 bg-red-950/30' : 'border-emerald-500/40 bg-slate-900/80'}`;
+    $('station-icon').className = `w-16 h-16 rounded-2xl flex items-center justify-center text-2xl mb-3 ${stationDown ? 'bg-red-500/20 border border-red-500/40 text-red-400' : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'}`;
+    $('station-status').className = `mt-2 px-2.5 py-1 rounded-full text-xs font-bold border ${stationDown ? BADGE.red : BADGE.emerald}`;
+    $('station-status').textContent = stationDown ? 'ARIZA TESPİT EDİLDİ' : 'SORUN YOK';
+
+    $('fleet-grid').innerHTML = fleet.otobusler.map((bus) => {
+        const own = findings.filter((f) => f.bus === bus);
+        const busDown = own.some((f) => f.source === 'otobus');
+        const badSensors = new Set(own.flatMap((f) => f.sensors));
+        const state = busDown ? ['red', 'OTOBÜS ARIZASI'] : badSensors.size ? ['sky', 'SENSÖR ARIZASI'] : ['emerald', 'SORUN YOK'];
+        const sensorRows = fleet.sensorler.map((s) => {
+            const bad = badSensors.has(s);
+            return `<div class="flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs ${bad ? 'bg-red-500/15 border-red-500/40 text-red-200' : 'bg-slate-950/50 border-slate-800/80 text-slate-300'}">
+                <span>${esc(s)}</span>
+                <span class="flex items-center gap-2"><span class="font-mono text-[10px]">${bad ? 'ARIZA' : 'OK'}</span><span class="w-2 h-2 rounded-full ${bad ? 'led-red' : 'led-green'}"></span></span>
+            </div>`;
+        }).join('');
+        return `<div class="rounded-2xl p-4 border ${busDown ? 'border-2 border-red-500/70 bg-red-950/25' : 'border-slate-800 bg-slate-900/70'}">
+            <div class="flex items-center justify-between mb-3">
+                <h4 class="font-mono font-extrabold text-sm text-white flex items-center gap-2"><i class="fa-solid fa-bus"></i>${esc(bus)} OTOBÜSÜ</h4>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${BADGE[state[0]]}">${state[1]}</span>
+            </div>
+            <div class="space-y-1.5">${sensorRows}</div>
+        </div>`;
+    }).join('');
+}
+
+function renderTimeline(findings) {
+    if (!findings.length) {
+        $('timeline-range').textContent = 'Gösterilecek kesinti yok';
+        $('timeline-rows').innerHTML = '';
+        return;
+    }
+    const min = Math.min(...findings.map((f) => f.start));
+    const max = Math.max(...findings.map((f) => f.end));
+    const span = Math.max(1, max - min);
+    const first = findings.find((f) => f.start === min);
+    const last = findings.find((f) => f.end === max);
+    $('timeline-range').textContent = `${first.start_text} — ${last.end_text} arası`;
+
+    const lanes = [['Ana İstasyon', (f) => f.source === 'istasyon'],
+        ...fleet.otobusler.map((b) => [`${b} Otobüsü`, (f) => f.bus === b])];
+    $('timeline-rows').innerHTML = lanes.map(([label, match]) => {
+        const bars = findings.filter(match).map((f) => {
+            const left = ((f.start - min) / span) * 100;
+            const width = Math.max(0.8, ((f.end - f.start) / span) * 100);
+            return `<div title="${esc(f.message)}" class="absolute top-0 h-6 rounded-[3px] ${SOURCE[f.source].bar}" style="left:${left}%;width:${width}%"></div>`;
+        }).join('');
+        return `<div class="grid grid-cols-[110px_1fr] gap-3 items-center bg-slate-900/50 px-2.5 py-1.5 rounded-lg border border-slate-800/70">
+            <div class="text-xs font-mono font-semibold text-slate-200 truncate">${esc(label)}</div>
+            <div class="relative h-6 rounded-[3px] bg-emerald-500/20">${bars}</div>
+        </div>`;
+    }).join('');
+}
+
+function renderRules(summary) {
+    $('rule-steps').innerHTML = RULES.map((rule, i) => {
+        const count = summary[rule.source];
+        const color = SOURCE[rule.source].color;
+        return `<div class="rounded-xl p-3.5 border ${count ? `border-2 ${BADGE[color]}` : 'border-slate-800 bg-slate-900/50'}">
+            <div class="flex items-start gap-3">
+                <div class="w-8 h-8 rounded-lg bg-slate-800 text-slate-300 font-mono font-bold text-xs flex items-center justify-center shrink-0">0${i + 1}</div>
+                <div class="flex-1">
+                    <div class="flex items-center justify-between gap-2">
+                        <h4 class="text-xs sm:text-sm font-bold text-slate-200">${rule.title}</h4>
+                        <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">${count ? `${count} KEZ EŞLEŞTİ` : 'EŞLEŞME YOK'}</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1">${rule.text}</p>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function renderTable(findings) {
+    if (!findings.length) {
+        $('findings-table').innerHTML = '<tr><td colspan="4" class="py-8 text-center text-slate-500">Tespit edilen arıza yok.</td></tr>';
+        return;
+    }
+    $('findings-table').innerHTML = findings.map((f) => `<tr class="text-slate-300">
+        <td class="py-1.5 px-3 text-amber-300">${esc(f.start_text)}–${esc(f.end_text)}</td>
+        <td class="py-1.5 px-3 font-bold">${SOURCE[f.source].label}</td>
+        <td class="py-1.5 px-3">${esc(f.bus || '—')}</td>
+        <td class="py-1.5 px-3 text-slate-400">${esc(f.sensors.join(', ') || '—')}</td>
+    </tr>`).join('');
+}
+
+// ---------------------------------------------------------------- Başlangıç
+async function init() {
+    renderRules({ istasyon: 0, otobus: 0, sensor: 0 });
+    renderTable([]);
+    try {
+        const response = await fetch('/api/fleet');
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.errors?.[0]);
+        fleet = body;
+        $('engine-led').className = 'w-2.5 h-2.5 rounded-full led-green';
+        $('engine-status').className = 'text-xs font-mono font-bold text-emerald-400';
+        $('engine-status').textContent = 'AKTİF';
+        renderFleet([]);
+        renderScenarioButtons();
+    } catch (err) {
+        $('engine-led').className = 'w-2.5 h-2.5 rounded-full led-red';
+        $('engine-status').className = 'text-xs font-mono font-bold text-red-400';
+        $('engine-status').textContent = 'ULAŞILAMIYOR';
+        showToast('Sunucuya ulaşılamadı. Sayfayı uygulama üzerinden açın (uvicorn main:app).', 'error');
+    }
+
+    $('run-btn').addEventListener('click', runAnalysis);
+    $('csv-editor').addEventListener('input', updateLineCount);
+    $('csv-file-input').addEventListener('change', (e) => uploadFile(e.target.files[0]));
+    const zone = $('drop-zone');
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-active'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-active'));
+    zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('drag-active');
+        uploadFile(e.dataTransfer.files[0]);
+    });
+}
+
+window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

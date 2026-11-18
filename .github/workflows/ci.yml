@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bağımlılıkları kur
+        run: pip install -r requirements-dev.txt
+      - name: Linter (flake8, PEP8 + McCabe ≤ 10)
+        run: flake8 src tests main.py
+      - name: Karmaşıklık raporu (radon)
+        run: radon cc src -a
+      - name: Testler ve kapsama (en az %85)
+        run: pytest --cov=src --cov-report=term-missing --cov-fail-under=85
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker imajını oluştur
+        run: docker build -t telemetry-sentinel .
